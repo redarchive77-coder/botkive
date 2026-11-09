@@ -598,6 +598,12 @@ img.emo{display:block;max-width:min(300px,100%);max-height:380px;width:auto;marg
 .setr b{font-weight:600}
 .setr small{font-size:12.5px;color:var(--mute)}
 .setr .v{margin-left:auto;flex:none;font-size:13px;color:var(--mute);text-align:right}
+.swt{display:inline-block;width:40px;height:23px;border-radius:999px;background:var(--line3);position:relative;vertical-align:middle;transition:background .15s}
+.swt::after{content:'';position:absolute;top:3px;left:3px;width:17px;height:17px;border-radius:50%;background:var(--ink3);transition:transform .15s,background .15s}
+[aria-checked=true] .swt{background:var(--acc)}
+[aria-checked=true] .swt::after{transform:translateX(17px);background:var(--acc-ink)}
+.ibg{position:absolute;left:8px;top:8px;padding:2px 8px;border-radius:999px;font-size:11.5px;font-weight:600;color:#F2CF8F;background:rgba(10,10,12,.72);backdrop-filter:blur(6px)}
+.ibg.no{color:#B9B7BE}
 .pchip{display:inline-flex;align-items:center;gap:7px;min-height:30px;padding:0 12px 0 4px;border-radius:999px;border:1px solid var(--line2);background:var(--card2);color:var(--ink2);font-size:13px;font-weight:600;cursor:pointer;max-width:100%}
 .pchip img,.pchip .pav{flex:none;width:22px;height:22px;border-radius:50%;object-fit:cover;display:grid;place-items:center;background:var(--sunk2);font-size:11px;color:var(--ink3)}
 .pchip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -994,6 +1000,7 @@ function ago(s) {
   return day(t);
 }
 function day(t) { const d = new Date(typeof t === 'number' ? t : Date.parse(t)); return `${d.getFullYear()}. ${d.getMonth() + 1}. ${d.getDate()}.`; }
+function dayTime(t) { const d = new Date(typeof t === 'number' ? t : Date.parse(t)), p = n => String(n).padStart(2, '0'); return `${day(t)} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`; }
 function size(n) { return n > 1e9 ? (n / 1e9).toFixed(2) + 'GB' : n > 1e6 ? (n / 1e6).toFixed(1) + 'MB' : Math.max(1, Math.round(n / 1e3)) + 'KB'; }
 const tint = id => ['#3B4A3A', '#4A3B48', '#3A4250', '#4F4232', '#3E3A52', '#2F4A4A', '#50393A', '#45452F'][id % 8];
 function cover(b, cls = '') {
@@ -1100,6 +1107,7 @@ function settingsDialog() {
     <div class="bd"><div class="sets">
       <p class="legend">보기</p>
       ${row('theme', 'palette', '테마·글꼴', '이 기기에만 저장돼요', `${h(themeName())} · ${h(fontName)}`)}
+      <button type="button" class="setr" role="switch" aria-checked="${introBadge()}" data-sw="ibadge">${ic('info', 20)}<span class="tx"><b>소개글 있음·없음 표시</b><small>서재 카드 왼쪽 위 · 이 기기에만 저장돼요</small></span><span class="v"><i class="swt"></i></span></button>
       <p class="legend">이름표</p>
       ${row('statuses', 'star', '봇 상태', '하는 중 · 찜 · 끝 같은 서재 위 칸', `${st.statuses.length}개`)}
       ${row('itypes', 'box', '자료 종류', '자료함 위 칸', `${st.itypes.length}개`)}
@@ -1111,8 +1119,15 @@ function settingsDialog() {
     </div></div>`, 'narrow');
   const open = {theme: themeDialog, lock: lockDialog, export: exportDialog,
     statuses: () => labelDialog('statuses', route), itypes: () => labelDialog('itypes', route), stypes: () => labelDialog('stypes', route), ptypes: () => labelDialog('ptypes', route)};
-  $$('.setr', m).forEach(b => b.onclick = () => { m.close(); open[b.dataset.s](); });
+  $$('.setr[data-s]', m).forEach(b => b.onclick = () => { m.close(); open[b.dataset.s](); });
+  $('[data-sw=ibadge]', m).onclick = e => {
+    const on = !introBadge();
+    try { localStorage.setItem('bs-ibadge', on ? '1' : '0'); } catch (x) {}
+    e.currentTarget.setAttribute('aria-checked', on);
+    if (/^#\/(all|f\/)/.test(location.hash)) route();  // 서재 화면이면 바로 다시 그림
+  };
 }
+function introBadge() { try { return localStorage.getItem('bs-ibadge') === '1'; } catch (e) { return false; } }
 // ---- 내보내기 · 들이기: 봇카이브 없이도 열리는 폴더로 받고, 받은 압축 파일을 다시 들임 ----
 function exportDialog() {
   const m = modal(`<header><h2>내보내기 · 들이기</h2>${xBtn}</header>
@@ -2586,9 +2601,10 @@ async function viewHome(folderId) {
   const tagCounts = [...tc.values()].sort((a, b) => b.n - a.n || a.t.localeCompare(b.t, 'ko')).map(x => [x.t, x.n]);
   allTags = tagCounts.map(x => x[0]);
   let tags = tagFilter.get().map(t => t.toLowerCase()).filter(t => tc.has(t));
+  const ib = introBadge();
   const card = b => `<a class="bc" href="#/b/${b.id}" data-s="${b.status}" data-t="${h(JSON.stringify((b.tags || []).map(t => t.toLowerCase())))}" data-q="${h([b.name, b.creator, ...(b.tags || [])].join(' ').toLowerCase())}">
       ${cover(b)}
-      <span class="st" style="color:${STCOL[b.status]}">${STATUS[b.status]}</span>${b.chats ? `<span class="cc" title="채팅 로그 ${b.chats}개">${ic('chat', 15)}${b.chats}</span>` : ''}</div>
+      ${ib ? `<span class="ibg${b.has_intro ? '' : ' no'}">${b.has_intro ? '소개글 있음' : '소개글 없음'}</span>` : ''}<span class="st" style="color:${STCOL[b.status]}">${STATUS[b.status]}</span>${b.chats ? `<span class="cc" title="채팅 로그 ${b.chats}개">${ic('chat', 15)}${b.chats}</span>` : ''}</div>
       <b>${h(b.name)}</b>${b.creator || b.version ? `<span class="who">${[b.creator, b.version].filter(Boolean).map(h).join(' · ')}</span>` : ''}
       <span class="fl">${folderDots(b.folders)}</span></a>`;
   view.innerHTML = `<div class="wrap">
@@ -3009,13 +3025,49 @@ function tabIntro() {
     <div class="ahead"><div style="min-width:0"><h2>${h(post.title || B.name + ' 소개')}</h2>
       <p class="meta">${[vs.length > 1 && `${h(shown.name)} 소개글`, post.author && `글쓴이 ${h(post.author)}`,
         post.url && `<a href="${h(post.url)}" target="_blank" rel="noopener noreferrer">원문 보기</a>`, post.at && `${day(post.at)}에 보관`].filter(Boolean).join(' · ')}</p></div>
-      <div class="row"><button class="btn sm ghost" id="iName">${ic('edit', 14)}이름</button><button class="btn sm ghost" id="iNew">새로 넣기</button>
+      <div class="row" style="flex-wrap:wrap;justify-content:flex-end"><button class="btn sm ghost" id="iName">${ic('edit', 14)}이름</button><button class="btn sm ghost" id="iNew">새로 넣기</button>
+        <button class="btn sm ghost" id="iCopy">${ic('copy', 14)}내용 복사</button><button class="btn sm" id="iBasic">기본 소개로 옮기기</button>
         <button class="btn sm ghost danger" id="iDel" aria-label="이 글 지우기">${ic('trash', 15)}</button></div></div>
     <div class="prose" id="prose">${post.html}</div></article>`;
   $$('#prose a').forEach(a => { a.target = '_blank'; a.rel = 'noopener noreferrer'; });
   $$('#prose img:not(.emoji)').forEach(i => { i.style.cursor = 'zoom-in'; i.onclick = () => lightbox(i.src); });
   $$('#prose video').forEach(x => { x.muted = true; });
   $('#iNew').onclick = () => introImport(shown, post);
+  $('#iCopy').onclick = async () => {  // 서식째(붙여넣는 곳이 받으면) + 글자만
+    const pr = $('#prose'), text = pr.innerText.replace(/\n{3,}/g, '\n\n').trim();
+    try {
+      await navigator.clipboard.write([new ClipboardItem({'text/html': new Blob([post.html], {type: 'text/html'}), 'text/plain': new Blob([text], {type: 'text/plain'})})]);
+      toast('글 내용을 복사했어요');
+    } catch (e) { copyText(text, '글 내용을 복사했어요'); }
+  };
+  $('#iBasic').onclick = () => {
+    const many = vs.length > 1;
+    let scope = shown.basic && many ? 'ver' : 'all';
+    const m = modal(`<header><h2>기본 소개로 옮기기</h2>${xBtn}</header>
+      <div class="bd">
+        <p style="margin:0 0 4px">${post.title ? `<b>${h(post.title)}</b> 글을` : '이 글을'} 기본 소개로 옮겨요. 그림도 그대로 따라가요.</p>
+        ${many ? `<div class="seg bscope" role="group" aria-label="어디에 둘까요"><button class="pill" data-s="all">모든 버전 공통</button><button class="pill" data-s="ver">${h(shown.name)}에만</button></div>` : ''}
+        <p class="hint" id="mbWarn" style="margin:10px 0"></p>
+        <label style="display:flex;gap:8px;align-items:center;cursor:pointer"><input type="checkbox" id="mbKeep"> 글들 탭에도 이 글 남겨 두기 (복사)</label>
+      </div>
+      <footer><span class="note"></span><button class="btn" data-close>취소</button><button class="btn pri" data-ok>옮기기</button></footer>`, 'narrow');
+    const seg = () => {
+      $$('.bscope button', m).forEach(b => b.setAttribute('aria-pressed', b.dataset.s === scope));
+      const old = scope === 'ver' ? shown.basic : B.basic || (!many && shown.basic);
+      $('#mbWarn', m).textContent = old && old.trim() ? '지금 들어 있는 기본 소개는 이 글로 바뀌어요.' : '아직 기본 소개가 없어서 이 글이 그대로 들어가요.';
+    };
+    $$('.bscope button', m).forEach(b => b.onclick = () => { scope = b.dataset.s; seg(); });
+    seg();
+    $('[data-ok]', m).onclick = async e => {
+      const btn = e.currentTarget, keep = $('#mbKeep', m).checked;
+      btn.disabled = true;
+      try {
+        const d = await api('POST', `/api/bots/${B.id}/basic`, {from_intro: post.id, move: !keep, scope, version_id: shown.id});
+        B = d.bot; m.close(); if (scope === 'ver') introVer = shown.id; introPage = 'basic'; drawBot('intro');
+        toast(keep ? '기본 소개에 넣었어요' : '기본 소개로 옮겼어요');
+      } catch (er) { fail(er); btn.disabled = false; }
+    };
+  };
   $('#iName').onclick = () => {
     const m = modal(`<header><h2>글 이름</h2>${xBtn}</header>
       <div class="bd"><input class="inp" id="inT" value="${h(post.title)}" placeholder="예: 10월 업데이트 공지" maxlength="300"></div>
@@ -3457,7 +3509,7 @@ function fileRow(f, opts = {}) {
   const ext = (f.name.split('.').pop() || '').toUpperCase().slice(0, 5);
   return `<div class="fr" data-id="${f.id}"><span class="fi">${h(f.kind === 'card' ? ext : KIND_EXT[f.kind] === 'FILE' ? ext : KIND_EXT[f.kind])}</span>
     <div style="min-width:0"><b>${h(f.name)}</b>
-      <span class="meta">${[opts.bot && f.bot_name ? h(f.bot_name) : '', KIND[f.kind], size(f.size), day(f.created)].filter(Boolean).join(' · ')}</span>
+      <span class="meta">${[opts.bot && f.bot_name ? h(f.bot_name) : '', KIND[f.kind], size(f.size), dayTime(f.created)].filter(Boolean).join(' · ')}</span>
       ${f.note ? `<div class="note">${h(f.note)}</div>` : ''}</div>
     <div class="acts">
       ${PEEK_KINDS.includes(f.kind) ? `<button class="ib" data-fpeek aria-label="로어북·에셋 보기" title="로어북·에셋 보기">${ic('info', 17)}</button>` : ''}

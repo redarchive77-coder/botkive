@@ -28,6 +28,7 @@ API (JSON):
          푸는 일은 브라우저의 /proton.js(프로톤 SDK 묶음, tools/proton)가 함
   GET    /api/mega/<파일 id>             (X-BS) 메가 공개 파일의 받을 주소·크기·암호화된 이름 (푸는 건 브라우저)
   POST   /api/bots/<id>/basic            {html, scope: all|ver, version_id} 기본 소개(모든 버전 공통 또는 그 버전 전용, 빈 글이면 지움)
+                                          {from_intro: 글 id, move?: true} 이면 그 소개글을 기본 소개로 (move면 원래 글은 지움)
   POST   /api/bots/<id>/intro/fetch      {url, version_id?} 아카라이브 글 가져오기
   POST   /api/versions {bot_id, name, note, released, info, current}   PUT|DELETE /api/versions/<id>
   PUT    /api/bots/<id>/versions/order {ids: [위 → 아래]}   버전 순서 (새 버전은 맨 위로)
@@ -2073,7 +2074,9 @@ def bot_summaries(folder=None, items=False):
                (SELECT COUNT(*) FROM chats c WHERE c.bot_id=b.id) AS chats,
                (SELECT COUNT(*) FROM files f WHERE f.bot_id=b.id) AS files,
                (SELECT MAX(COALESCE(c.updated, c.created)) FROM chats c WHERE c.bot_id=b.id) AS chat_at,
-               EXISTS(SELECT 1 FROM intros i JOIN versions v ON v.id=i.version_id WHERE v.bot_id=b.id) AS has_intro,
+               (EXISTS(SELECT 1 FROM intros i JOIN versions v ON v.id=i.version_id WHERE v.bot_id=b.id)
+                OR TRIM(COALESCE(b.basic, '')) != ''
+                OR EXISTS(SELECT 1 FROM versions v WHERE v.bot_id=b.id AND TRIM(COALESCE(v.basic, '')) != '')) AS has_intro,
                (SELECT name FROM versions v WHERE v.bot_id=b.id AND v.current=1) AS version
              FROM bots b WHERE """ + ("COALESCE(b.itype, '') != ''" if items else "COALESCE(b.itype, '') = ''")
     args = ()
@@ -3221,8 +3224,14 @@ class Handler(BaseHTTPRequestHandler):
                 if not b:
                     return self.send(404, {"error": "봇이 없어요"})
                 v = version_of(d.get("version_id"), bid)
-                raw = str(d.get("html") or "")
-                html, ok, miss = clean_intro(raw) if raw.strip() else ("", 0, 0)
+                src = intro_of(d.get("from_intro"), bid) if d.get("from_intro") is not None else None
+                if d.get("from_intro") is not None and not src:
+                    return self.send(404, {"error": "글이 없어요"})
+                if src:  # 소개글을 그대로 기본 소개로 (이미 정리·그림 보관된 글)
+                    html, ok, miss = src["html"], 0, 0
+                else:
+                    raw = str(d.get("html") or "")
+                    html, ok, miss = clean_intro(raw) if raw.strip() else ("", 0, 0)
                 old = ""
                 if d.get("scope") == "ver":
                     if not v:
@@ -3235,6 +3244,9 @@ class Handler(BaseHTTPRequestHandler):
                     if v and v["basic"]:  # 공통으로 쓰면 그 버전 전용 글은 걷어 냄
                         old += v["basic"]
                         db.x("UPDATE versions SET basic='' WHERE id=?", (v["id"],))
+                if src and d.get("move"):  # 옮기기: 원래 글은 지움 (그림은 기본 소개가 쓰므로 남음)
+                    db.x("DELETE FROM intros WHERE id=?", (src["id"],))
+                    old += src["html"]
                 self.gc_intro(old)
                 add_realm_link(bid, html)
                 return self.send(200, {"ok": True, "got": ok, "miss": miss, "bot": bot_detail(bid)})
